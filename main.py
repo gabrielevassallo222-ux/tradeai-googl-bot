@@ -1,7 +1,7 @@
 """
 TradeAI v4 AGGRESSIVE - 3 SYMBOLS (AAPL, MSFT, GOOGL)
 Trade ogni 30 secondi con RSI < 40
-Railway Version - 24/7 Online
+Railway Version - 24/7 Online - CON PAUSE BUTTON
 """
 
 import asyncio
@@ -80,6 +80,7 @@ class IntelligentTradingBot:
         self.secret_key = ALPACA_SECRET_KEY
         self.base_url = BASE_URL
         self.running = True
+        self.paused = False
         self.cycle = 0
         self.trades_placed = []
         self.initial_capital = 100000.0
@@ -233,6 +234,9 @@ h1 { text-align: center; margin-bottom: 20px; font-size: 2.5em; text-shadow: 0 0
 .trades-box { background: rgba(0,255,136,0.05); border: 2px solid #00ff88; border-radius: 8px; padding: 20px; margin-top: 30px; }
 .trade { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap: 10px; padding: 10px; border-bottom: 1px solid rgba(0,255,136,0.2); font-size: 0.85em; }
 .tag { background: rgba(255,0,0,0.2); border: 2px solid #ff6b6b; padding: 8px 12px; border-radius: 4px; display: inline-block; color: #ff6b6b; font-weight: bold; margin: 0 10px 20px 0; }
+.pause-btn { padding: 12px 30px; font-size: 1.1em; background: #00ff88; color: #000; border: 2px solid #00ff88; border-radius: 5px; cursor: pointer; font-weight: bold; text-transform: uppercase; transition: all 0.3s; }
+.pause-btn:hover { opacity: 0.8; }
+.pause-btn.paused { background: #ff6b6b; border-color: #ff6b6b; }
 </style>
 </head>
 <body>
@@ -243,7 +247,10 @@ h1 { text-align: center; margin-bottom: 20px; font-size: 2.5em; text-shadow: 0 0
         <span class="tag">Trade ogni 30 sec</span>
         <span class="tag">RSI < 40</span>
     </div>
-    <div class="status">LIVE TRADING - AGGRESSIVE STRATEGY</div>
+    <div style="text-align: center; margin-bottom: 20px;">
+        <button id="pauseBtn" class="pause-btn">PAUSE</button>
+    </div>
+    <div class="status" id="status">LIVE TRADING - AGGRESSIVE STRATEGY</div>
     <div class="grid">
         <div class="card">
             <div class="card-label">Balance</div>
@@ -279,6 +286,15 @@ h1 { text-align: center; margin-bottom: 20px; font-size: 2.5em; text-shadow: 0 0
     </div>
 </div>
 <script>
+document.getElementById('pauseBtn').addEventListener('click', async function() {
+    let isPaused = this.textContent === 'RESUME';
+    let endpoint = isPaused ? '/api/resume' : '/api/pause';
+    await fetch(endpoint);
+    this.textContent = isPaused ? 'PAUSE' : 'RESUME';
+    this.classList.toggle('paused');
+    document.getElementById('status').textContent = isPaused ? 'LIVE TRADING - AGGRESSIVE STRATEGY' : 'PAUSED - NO NEW TRADES';
+});
+
 async function update() {
     let res = await fetch('/api/status').then(r => r.json());
     document.getElementById('balance').textContent = '$' + res.balance.toFixed(2);
@@ -319,7 +335,8 @@ class Handler(BaseHTTPRequestHandler):
                 'open_count': open_count,
                 'orders_count': len(bot.trades_placed),
                 'cycle': bot.cycle,
-                'uptime': bot.get_uptime()
+                'uptime': bot.get_uptime(),
+                'paused': bot.paused
             }
             self.wfile.write(json.dumps(data).encode())
         elif self.path == '/api/trades':
@@ -327,6 +344,18 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps(bot.trades_placed).encode())
+        elif self.path == '/api/pause':
+            bot.paused = True
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'status': 'paused'}).encode())
+        elif self.path == '/api/resume':
+            bot.paused = False
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({'status': 'resumed'}).encode())
         else:
             self.send_response(404)
             self.end_headers()
@@ -343,6 +372,10 @@ async def trading_loop():
     print("Stop Loss: -1% | Take Profit: +1%\n")
     
     while bot.running:
+        if bot.paused:
+            await asyncio.sleep(1)
+            continue
+        
         bot.cycle += 1
         bot.get_account()
         closed = bot.update_positions()
@@ -370,7 +403,7 @@ async def trading_loop():
 def run_server():
     server = HTTPServer(('0.0.0.0', 8000), Handler)
     print('\n' + '='*70)
-    print('BOT v4 AGGRESSIVE ONLINE ON RAILWAY - 3 SYMBOLS')
+    print('BOT v4 AGGRESSIVE ONLINE ON RAILWAY - 3 SYMBOLS + PAUSE BUTTON')
     print('='*70 + '\n')
     server.serve_forever()
 
