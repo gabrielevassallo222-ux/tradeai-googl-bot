@@ -99,7 +99,7 @@ class IntelligentTradingBot:
         self.drawdown_threshold = -10.0
         self.hold_time_minutes = 60
         self.stop_loss_absolute = 40.0
-        self.take_profit_target = 1000.0
+        self.take_profit_target = 500000.0
         self.drawdown_start_time = None
         self.under_drawdown = False
         self.max_drawdown_recorded = 0.0
