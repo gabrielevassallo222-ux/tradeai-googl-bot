@@ -1,14 +1,13 @@
 """
-TradeAI v4 GOOGL ONLY - INTELLIGENT TRADING BOT
-Strategia RSI/MACD SOLO SU GOOGL
-Focus massimo su un simbolo - Railway Version
+TradeAI v4 AGGRESSIVE - 3 SYMBOLS (AAPL, MSFT, GOOGL)
+Trade ogni 30 secondi con RSI < 40
+Railway Version - 24/7 Online
 """
 
 import asyncio
 import json
 import requests
-import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 import os
@@ -21,9 +20,7 @@ BASE_URL = "https://paper-api.alpaca.markets/v2"
 def calculate_rsi(prices, period=14):
     if len(prices) < period:
         return 50.0
-    changes = []
-    for i in range(1, len(prices)):
-        changes.append(prices[i] - prices[i-1])
+    changes = [prices[i] - prices[i-1] for i in range(1, len(prices))]
     gains = [c for c in changes if c > 0]
     losses = [abs(c) for c in changes if c < 0]
     avg_gain = sum(gains) / period if gains else 0
@@ -31,10 +28,9 @@ def calculate_rsi(prices, period=14):
     if avg_loss == 0:
         return 100.0 if avg_gain > 0 else 50.0
     rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
+    return 100 - (100 / (1 + rs))
 
-def calculate_macd(prices, fast=12, slow=26, signal=9):
+def calculate_macd(prices, fast=12, slow=26):
     if len(prices) < slow:
         return 0.0, 0.0
     ema_fast = prices[-1]
@@ -43,8 +39,7 @@ def calculate_macd(prices, fast=12, slow=26, signal=9):
     ema_slow = prices[-1]
     for i in range(1, min(len(prices), slow)):
         ema_slow = ema_slow * (2/(slow+1)) + prices[-(i+1)] * (1 - 2/(slow+1))
-    macd = ema_fast - ema_slow
-    return macd, ema_fast
+    return ema_fast - ema_slow, ema_fast
 
 def calculate_sma(prices, period=20):
     if len(prices) < period:
@@ -63,7 +58,6 @@ class TradePosition:
         self.current_price = entry_price
         self.closed = False
         self.close_reason = None
-        self.close_price = None
         self.pnl = 0.0
     
     def update_price(self, current_price):
@@ -73,12 +67,10 @@ class TradePosition:
             if current_price <= self.stop_loss:
                 self.closed = True
                 self.close_reason = "STOP LOSS (-1%)"
-                self.close_price = current_price
                 return 'stop_loss'
             if current_price >= self.take_profit:
                 self.closed = True
                 self.close_reason = "TAKE PROFIT (+1%)"
-                self.close_price = current_price
                 return 'take_profit'
         return None
 
@@ -94,7 +86,11 @@ class IntelligentTradingBot:
         self.current_balance = 100000.0
         self.peak_balance = 100000.0
         self.startup_time = datetime.now()
-        self.price_history = {'GOOGL': deque(maxlen=100)}
+        self.price_history = {
+            'AAPL': deque(maxlen=100),
+            'MSFT': deque(maxlen=100),
+            'GOOGL': deque(maxlen=100)
+        }
         self.open_positions = []
         self.drawdown_threshold = -10.0
         self.hold_time_minutes = 60
@@ -103,10 +99,6 @@ class IntelligentTradingBot:
         self.drawdown_start_time = None
         self.under_drawdown = False
         self.max_drawdown_recorded = 0.0
-        self.account = None
-        self.positions = []
-        self.stop_reason = None
-        self.status = "TRADING"
     
     def get_headers(self):
         return {
@@ -125,8 +117,8 @@ class IntelligentTradingBot:
                 if self.current_balance > self.peak_balance:
                     self.peak_balance = self.current_balance
                 return self.account
-        except Exception as e:
-            print("Error getting account: {}".format(str(e)))
+        except:
+            pass
         return None
     
     def get_last_price(self, symbol):
@@ -137,22 +129,10 @@ class IntelligentTradingBot:
                 data = response.json()
                 if 'quotes' in data and symbol in data['quotes']:
                     quote = data['quotes'][symbol]
-                    price = (quote['ap'] + quote['bp']) / 2
-                    return price
-        except Exception as e:
+                    return (quote['ap'] + quote['bp']) / 2
+        except:
             pass
         return None
-    
-    def get_positions(self):
-        try:
-            url = "{}/positions".format(self.base_url)
-            response = requests.get(url, headers=self.get_headers(), timeout=10)
-            if response.status_code == 200:
-                self.positions = response.json()
-                return self.positions
-        except Exception as e:
-            pass
-        return []
     
     def place_order(self, symbol, qty, side):
         try:
@@ -166,8 +146,8 @@ class IntelligentTradingBot:
                 self.open_positions.append(position)
                 self.trades_placed.append({'symbol': symbol, 'qty': qty, 'side': side, 'price': entry_price, 'time': datetime.now().strftime('%H:%M:%S'), 'reason': 'Entry'})
                 return entry_price
-        except Exception as e:
-            print("Error placing order: {}".format(str(e)))
+        except:
+            pass
         return None
     
     def close_position(self, position):
@@ -183,14 +163,15 @@ class IntelligentTradingBot:
                 position.closed = True
                 self.trades_placed.append({'symbol': position.symbol, 'qty': position.qty, 'side': close_side, 'price': close_price, 'time': datetime.now().strftime('%H:%M:%S'), 'reason': position.close_reason, 'pnl': position.pnl})
                 return True
-        except Exception as e:
-            print("Error closing position: {}".format(str(e)))
+        except:
+            pass
         return False
     
     def update_positions(self):
-        price = self.get_last_price('GOOGL')
-        if price:
-            self.price_history['GOOGL'].append(price)
+        for symbol in ['AAPL', 'MSFT', 'GOOGL']:
+            price = self.get_last_price(symbol)
+            if price:
+                self.price_history[symbol].append(price)
         closed_count = 0
         for position in self.open_positions:
             if not position.closed:
@@ -216,66 +197,19 @@ class IntelligentTradingBot:
         if rsi is None:
             return False
         current_price = list(self.price_history[symbol])[-1]
-        if rsi < 40 and current_price > sma and macd > 0:
-            return True
-        return False
+        return rsi < 40 and current_price > sma and macd > 0
     
     def calculate_drawdown(self):
         if self.peak_balance == 0:
             return 0.0
-        drawdown_pct = ((self.current_balance - self.peak_balance) / self.peak_balance) * 100
-        return drawdown_pct
+        return ((self.current_balance - self.peak_balance) / self.peak_balance) * 100
     
     def calculate_pnl_dollars(self):
         return self.current_balance - self.initial_capital
     
-    def calculate_pnl_percentage(self):
-        if self.initial_capital == 0:
-            return 0.0
-        return (self.calculate_pnl_dollars() / self.initial_capital) * 100
-    
     def get_uptime(self):
         elapsed = datetime.now() - self.startup_time
-        days = elapsed.days
-        hours = elapsed.seconds // 3600
-        minutes = (elapsed.seconds % 3600) // 60
-        return "{}d {}h {}m".format(days, hours, minutes)
-    
-    def check_drawdown_status(self):
-        drawdown = self.calculate_drawdown()
-        if drawdown < self.max_drawdown_recorded:
-            self.max_drawdown_recorded = drawdown
-        if drawdown <= self.drawdown_threshold:
-            if not self.under_drawdown:
-                self.under_drawdown = True
-                self.drawdown_start_time = datetime.now()
-                print("\nWARNING: DRAWDOWN ALERT: {:.2f}% from peak".format(drawdown))
-            else:
-                elapsed = datetime.now() - self.drawdown_start_time
-                minutes_under = elapsed.total_seconds() / 60
-                if minutes_under >= self.hold_time_minutes:
-                    self.running = False
-                    self.stop_reason = "TRAILING STOP: {:.0f}min under {:.0f}%".format(minutes_under, self.drawdown_threshold)
-                    return False
-        else:
-            if self.under_drawdown:
-                print("\nRECOVERED! Back above threshold")
-                self.under_drawdown = False
-                self.drawdown_start_time = None
-        return True
-    
-    def check_exit_conditions(self):
-        if not self.check_drawdown_status():
-            return False
-        if self.current_balance <= self.stop_loss_absolute:
-            self.running = False
-            self.stop_reason = "ABSOLUTE STOP LOSS: ${:.2f}".format(self.current_balance)
-            return False
-        if self.current_balance >= self.take_profit_target:
-            self.running = False
-            self.stop_reason = "TAKE PROFIT TARGET REACHED: ${:.2f}".format(self.current_balance)
-            return False
-        return True
+        return "{}d {}h {}m".format(elapsed.days, elapsed.seconds // 3600, (elapsed.seconds % 3600) // 60)
 
 bot = IntelligentTradingBot()
 
@@ -283,15 +217,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<title>TradeAI v4 GOOGL ONLY</title>
+<title>TradeAI v4 AGGRESSIVE - 3 SYMBOLS</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { 
-    font-family: 'Courier New', monospace;
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-    color: #00ff88;
-    padding: 20px;
-}
+body { font-family: 'Courier New', monospace; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #00ff88; padding: 20px; }
 .container { max-width: 1400px; margin: 0 auto; }
 h1 { text-align: center; margin-bottom: 20px; font-size: 2.5em; text-shadow: 0 0 10px #00ff88; }
 .status { text-align: center; padding: 15px; background: rgba(0,255,136,0.1); border: 2px solid #00ff88; border-radius: 8px; margin-bottom: 20px; font-weight: bold; }
@@ -301,69 +230,32 @@ h1 { text-align: center; margin-bottom: 20px; font-size: 2.5em; text-shadow: 0 0
 .card-value { font-size: 2em; font-weight: bold; }
 .positive { color: #00ff88; }
 .negative { color: #ff6b6b; }
-.warning { color: #ffd700; }
-.protection-bar { background: rgba(0,255,136,0.05); border: 2px solid #00ff88; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
-.protection-item { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 15px; }
-.protection-stat { background: rgba(0,255,136,0.1); border: 1px solid #00ff88; border-radius: 5px; padding: 15px; text-align: center; }
-.protection-label { font-size: 0.75em; opacity: 0.7; text-transform: uppercase; margin-bottom: 8px; }
-.protection-value { font-size: 1.5em; font-weight: bold; }
-.trades-box { background: rgba(0,255,136,0.05); border: 2px solid #00ff88; border-radius: 8px; padding: 20px; }
+.trades-box { background: rgba(0,255,136,0.05); border: 2px solid #00ff88; border-radius: 8px; padding: 20px; margin-top: 30px; }
 .trade { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap: 10px; padding: 10px; border-bottom: 1px solid rgba(0,255,136,0.2); font-size: 0.85em; }
-.tag { background: rgba(0,200,255,0.2); border: 2px solid #00c8ff; padding: 8px 12px; border-radius: 4px; display: inline-block; color: #00c8ff; font-weight: bold; margin: 0 10px 20px 0; }
+.tag { background: rgba(255,0,0,0.2); border: 2px solid #ff6b6b; padding: 8px 12px; border-radius: 4px; display: inline-block; color: #ff6b6b; font-weight: bold; margin: 0 10px 20px 0; }
 </style>
 </head>
 <body>
 <div class="container">
-    <h1>ROBOT TradeAI v4 GOOGL ONLY</h1>
+    <h1>ROBOT TradeAI v4 AGGRESSIVE</h1>
     <div style="margin-bottom: 20px;">
-        <span class="tag">SOLO GOOGL</span>
-        <span class="tag">FOCUSED</span>
-        <span class="tag">RSI less than 40</span>
+        <span class="tag">AAPL + MSFT + GOOGL</span>
+        <span class="tag">Trade ogni 30 sec</span>
+        <span class="tag">RSI < 40</span>
     </div>
-    <div class="status">
-        LIVE TRADING - GOOGL FOCUSED STRATEGY
-    </div>
-    <div class="protection-bar">
-        <h2>ANTI-CROLLO PROTECTION</h2>
-        <div class="protection-item">
-            <div class="protection-stat">
-                <div class="protection-label">Current Drawdown</div>
-                <div class="protection-value" id="drawdown_val">0.00%</div>
-            </div>
-            <div class="protection-stat">
-                <div class="protection-label">Time Under Limit</div>
-                <div class="protection-value" id="time_under_val">0/60 min</div>
-            </div>
-            <div class="protection-stat">
-                <div class="protection-label">Max Drawdown</div>
-                <div class="protection-value negative" id="max_drawdown_val">0.00%</div>
-            </div>
-        </div>
-    </div>
+    <div class="status">LIVE TRADING - AGGRESSIVE STRATEGY</div>
     <div class="grid">
         <div class="card">
             <div class="card-label">Balance</div>
             <div class="card-value" id="balance">$0.00</div>
         </div>
         <div class="card">
-            <div class="card-label">P&L Total</div>
+            <div class="card-label">P&L</div>
             <div class="card-value" id="pnl">$0.00</div>
-        </div>
-        <div class="card">
-            <div class="card-label">Open P&L</div>
-            <div class="card-value" id="open_pnl">$0.00</div>
         </div>
         <div class="card">
             <div class="card-label">Open Positions</div>
             <div class="card-value" id="open_count">0</div>
-        </div>
-        <div class="card">
-            <div class="card-label">Peak</div>
-            <div class="card-value positive" id="peak">$0.00</div>
-        </div>
-        <div class="card">
-            <div class="card-label">Uptime</div>
-            <div class="card-value positive" id="uptime">0d 0h 0m</div>
         </div>
         <div class="card">
             <div class="card-label">Total Orders</div>
@@ -373,15 +265,15 @@ h1 { text-align: center; margin-bottom: 20px; font-size: 2.5em; text-shadow: 0 0
             <div class="card-label">Cycles</div>
             <div class="card-value" id="cycle">0</div>
         </div>
+        <div class="card">
+            <div class="card-label">Uptime</div>
+            <div class="card-value positive" id="uptime">0d 0h 0m</div>
+        </div>
     </div>
     <div class="trades-box">
-        <h2>Recent Trades - GOOGL (Last 15)</h2>
+        <h2>Recent Trades (Last 15)</h2>
         <div class="trade" style="font-weight: bold; border-bottom: 2px solid #00ff88;">
-            <div>SYMBOL</div>
-            <div>SIDE</div>
-            <div>PRICE</div>
-            <div>REASON</div>
-            <div>TIME</div>
+            <div>SYMBOL</div><div>SIDE</div><div>PRICE</div><div>REASON</div><div>TIME</div>
         </div>
         <div id="trades-list"></div>
     </div>
@@ -391,15 +283,10 @@ async function update() {
     let res = await fetch('/api/status').then(r => r.json());
     document.getElementById('balance').textContent = '$' + res.balance.toFixed(2);
     document.getElementById('pnl').textContent = '$' + res.pnl_dollars.toFixed(2);
-    document.getElementById('open_pnl').textContent = '$' + res.open_pnl.toFixed(2);
     document.getElementById('open_count').textContent = res.open_count;
     document.getElementById('orders').textContent = res.orders_count;
     document.getElementById('cycle').textContent = res.cycle;
-    document.getElementById('peak').textContent = '$' + res.peak.toFixed(2);
     document.getElementById('uptime').textContent = res.uptime;
-    document.getElementById('drawdown_val').textContent = res.drawdown.toFixed(2) + '%';
-    document.getElementById('max_drawdown_val').textContent = res.max_drawdown.toFixed(2) + '%';
-    
     let trades = await fetch('/api/trades').then(r => r.json());
     let html = trades.reverse().slice(0, 15).map(t => '<div class="trade"><div>' + t.symbol + '</div><div>' + t.side + '</div><div>$' + t.price.toFixed(2) + '</div><div>' + (t.reason || 'Trade') + '</div><div>' + t.time + '</div></div>').join('');
     document.getElementById('trades-list').innerHTML = html || '<div style="text-align:center;opacity:0.5;padding:20px;">No orders yet</div>';
@@ -423,22 +310,15 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             drawdown = bot.calculate_drawdown()
             pnl_dollars = bot.calculate_pnl_dollars()
-            pnl_percentage = bot.calculate_pnl_percentage()
             open_pnl = sum(p.pnl for p in bot.open_positions if not p.closed)
             open_count = len([p for p in bot.open_positions if not p.closed])
             data = {
                 'balance': round(bot.current_balance, 2),
-                'peak': round(bot.peak_balance, 2),
                 'pnl_dollars': round(pnl_dollars, 2),
-                'pnl_percentage': round(pnl_percentage, 2),
                 'open_pnl': round(open_pnl, 2),
                 'open_count': open_count,
-                'drawdown': round(drawdown, 2),
                 'orders_count': len(bot.trades_placed),
                 'cycle': bot.cycle,
-                'running': bot.running,
-                'under_drawdown': bot.under_drawdown,
-                'max_drawdown': round(bot.max_drawdown_recorded, 2),
                 'uptime': bot.get_uptime()
             }
             self.wfile.write(json.dumps(data).encode())
@@ -456,50 +336,42 @@ class Handler(BaseHTTPRequestHandler):
 
 async def trading_loop():
     print("\n" + "="*70)
-    print("BOT v4 GOOGL ONLY - INTELLIGENT TRADING BOT")
+    print("BOT v4 AGGRESSIVE - 3 SYMBOLS (AAPL, MSFT, GOOGL)")
     print("="*70)
-    print("\nFOCUS ON GOOGL")
-    print("RSI Threshold: < 40")
-    print("Stop Loss: -1%")
-    print("Take Profit: +1%")
-    print("Trade every 30 seconds\n")
+    print("\nStrategy: RSI < 40 + MACD")
+    print("Trade every 30 seconds")
+    print("Stop Loss: -1% | Take Profit: +1%\n")
     
     while bot.running:
         bot.cycle += 1
         bot.get_account()
-        bot.get_positions()
         closed = bot.update_positions()
         if closed > 0:
-            print("Cycle {}: Closed {} positions GOOGL".format(bot.cycle, closed))
-        if not bot.check_exit_conditions():
-            print("\nSTOP: {}".format(bot.stop_reason))
-            break
-        symbol = 'GOOGL'
-        has_open = any(p.symbol == symbol and not p.closed for p in bot.open_positions)
-        if not has_open and bot.should_buy(symbol):
-            try:
-                qty = 1
-                entry_price = bot.place_order(symbol, qty, 'buy')
-                if entry_price:
-                    rsi, macd, sma = bot.calculate_indicators(symbol)
-                    print("Cycle {}: BUY GOOGL at ${:.2f} (RSI: {:.1f}, MACD: {:.3f})".format(bot.cycle, entry_price, rsi, macd))
-            except Exception as e:
-                pass
+            print("Cycle {}: Closed {} positions".format(bot.cycle, closed))
+        
+        for symbol in ['AAPL', 'MSFT', 'GOOGL']:
+            has_open = any(p.symbol == symbol and not p.closed for p in bot.open_positions)
+            if not has_open and bot.should_buy(symbol):
+                try:
+                    entry_price = bot.place_order(symbol, 1, 'buy')
+                    if entry_price:
+                        rsi, macd, sma = bot.calculate_indicators(symbol)
+                        print("Cycle {}: BUY {} @ ${:.2f} (RSI: {:.1f})".format(bot.cycle, symbol, entry_price, rsi))
+                except:
+                    pass
+        
         if bot.cycle % 4 == 0:
-            drawdown = bot.calculate_drawdown()
             pnl = bot.calculate_pnl_dollars()
             open_count = len([p for p in bot.open_positions if not p.closed])
             print("Cycle {} | Balance: ${:.2f} | P&L: ${:.2f} | Open: {} | Orders: {}".format(bot.cycle, bot.current_balance, pnl, open_count, len(bot.trades_placed)))
+        
         await asyncio.sleep(30)
 
 def run_server():
     server = HTTPServer(('0.0.0.0', 8000), Handler)
     print('\n' + '='*70)
-    print('BOT v4 GOOGL ONLY ONLINE ON RAILWAY')
-    print('='*70)
-    print('\nOpen the Railway URL in your browser')
-    print('Focus: SOLO GOOGL')
-    print('Strategy: RSI < 40 + MACD\n')
+    print('BOT v4 AGGRESSIVE ONLINE ON RAILWAY - 3 SYMBOLS')
+    print('='*70 + '\n')
     server.serve_forever()
 
 if __name__ == '__main__':
