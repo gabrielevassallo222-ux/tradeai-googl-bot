@@ -1,6 +1,6 @@
 """
 TradeAI v4 AGGRESSIVE - 3 SYMBOLS (AAPL, MSFT, GOOGL)
-Trade ogni 30 secondi con RSI < 40
+Trade ogni 30 secondi con RSI < 40 + MACD > 0 (2 SEGNALI - NO SMA)
 Railway Version - 24/7 Online - CON PAUSE BUTTON
 """
 
@@ -197,8 +197,8 @@ class IntelligentTradingBot:
         rsi, macd, sma = self.calculate_indicators(symbol)
         if rsi is None:
             return False
-        current_price = list(self.price_history[symbol])[-1]
-        return rsi < 40 and current_price > sma and macd > 0
+        # MODIFICATO: 2 SEGNALI (RSI + MACD, ignora SMA)
+        return rsi < 40 and macd > 0
     
     def calculate_drawdown(self):
         if self.peak_balance == 0:
@@ -218,7 +218,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<title>TradeAI v4 AGGRESSIVE - 3 SYMBOLS</title>
+<title>TradeAI v4 AGGRESSIVE - 2 SIGNALS</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: 'Courier New', monospace; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #00ff88; padding: 20px; }
@@ -241,16 +241,16 @@ h1 { text-align: center; margin-bottom: 20px; font-size: 2.5em; text-shadow: 0 0
 </head>
 <body>
 <div class="container">
-    <h1>ROBOT TradeAI v4 AGGRESSIVE</h1>
+    <h1>ROBOT TradeAI v4 AGGRESSIVE 2.0</h1>
     <div style="margin-bottom: 20px;">
         <span class="tag">AAPL + MSFT + GOOGL</span>
         <span class="tag">Trade ogni 30 sec</span>
-        <span class="tag">RSI < 40</span>
+        <span class="tag">RSI < 40 + MACD > 0</span>
     </div>
     <div style="text-align: center; margin-bottom: 20px;">
         <button id="pauseBtn" class="pause-btn">PAUSE</button>
     </div>
-    <div class="status" id="status">LIVE TRADING - AGGRESSIVE STRATEGY</div>
+    <div class="status" id="status">LIVE TRADING - AGGRESSIVE STRATEGY (2 SIGNALS)</div>
     <div class="grid">
         <div class="card">
             <div class="card-label">Balance</div>
@@ -292,7 +292,7 @@ document.getElementById('pauseBtn').addEventListener('click', async function() {
     await fetch(endpoint);
     this.textContent = isPaused ? 'PAUSE' : 'RESUME';
     this.classList.toggle('paused');
-    document.getElementById('status').textContent = isPaused ? 'LIVE TRADING - AGGRESSIVE STRATEGY' : 'PAUSED - NO NEW TRADES';
+    document.getElementById('status').textContent = isPaused ? 'LIVE TRADING - AGGRESSIVE STRATEGY (2 SIGNALS)' : 'PAUSED - NO NEW TRADES';
 });
 
 async function update() {
@@ -365,9 +365,9 @@ class Handler(BaseHTTPRequestHandler):
 
 async def trading_loop():
     print("\n" + "="*70)
-    print("BOT v4 AGGRESSIVE - 3 SYMBOLS (AAPL, MSFT, GOOGL)")
+    print("BOT v4 AGGRESSIVE 2.0 - 3 SYMBOLS (AAPL, MSFT, GOOGL)")
     print("="*70)
-    print("\nStrategy: RSI < 40 + MACD")
+    print("\nStrategy: RSI < 40 + MACD > 0 (2 SIGNALS - NO SMA)")
     print("Trade every 30 seconds")
     print("Stop Loss: -1% | Take Profit: +1%\n")
     
@@ -389,7 +389,7 @@ async def trading_loop():
                     entry_price = bot.place_order(symbol, 1, 'buy')
                     if entry_price:
                         rsi, macd, sma = bot.calculate_indicators(symbol)
-                        print("Cycle {}: BUY {} @ ${:.2f} (RSI: {:.1f})".format(bot.cycle, symbol, entry_price, rsi))
+                        print("Cycle {}: BUY {} @ ${:.2f} (RSI: {:.1f}, MACD: {:.3f})".format(bot.cycle, symbol, entry_price, rsi, macd))
                 except:
                     pass
         
@@ -403,7 +403,7 @@ async def trading_loop():
 def run_server():
     server = HTTPServer(('0.0.0.0', 8000), Handler)
     print('\n' + '='*70)
-    print('BOT v4 AGGRESSIVE ONLINE ON RAILWAY - 3 SYMBOLS + PAUSE BUTTON')
+    print('BOT v4 AGGRESSIVE 2.0 ONLINE ON RAILWAY - 2 SIGNALS (RSI + MACD)')
     print('='*70 + '\n')
     server.serve_forever()
 
